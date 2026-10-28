@@ -2,6 +2,10 @@
 
 package v1beta2
 
+import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 // BackupExpirationApplyConfiguration represents a declarative configuration of the BackupExpiration type for use
 // with apply.
 //
@@ -10,6 +14,10 @@ type BackupExpirationApplyConfiguration struct {
 	// ExpireAfterSeconds expires data older than this duration, measured when each Job is created.
 	// The source cluster must be available to convert timestamps to FDB versions
 	ExpireAfterSeconds *int64 `json:"expireAfterSeconds,omitempty"`
+	// RestorableAfterTimestamp automatically selects a cutoff preserving this recovery point.
+	// FDB resolves timestamps approximately; the accepted database version is persisted in status.
+	// Mutually exclusive with duration retention and other restore requirements.
+	RestorableAfterTimestamp *v1.Time `json:"restorableAfterTimestamp,omitempty"`
 	// RestorableForSeconds requires restorability from this many seconds ago onward.
 	// Mutually exclusive with RestorableAfterVersion
 	RestorableForSeconds *int64 `json:"restorableForSeconds,omitempty"`
@@ -32,6 +40,14 @@ func BackupExpiration() *BackupExpirationApplyConfiguration {
 // If called multiple times, the ExpireAfterSeconds field is set to the value of the last call.
 func (b *BackupExpirationApplyConfiguration) WithExpireAfterSeconds(value int64) *BackupExpirationApplyConfiguration {
 	b.ExpireAfterSeconds = &value
+	return b
+}
+
+// WithRestorableAfterTimestamp sets the RestorableAfterTimestamp field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RestorableAfterTimestamp field is set to the value of the last call.
+func (b *BackupExpirationApplyConfiguration) WithRestorableAfterTimestamp(value v1.Time) *BackupExpirationApplyConfiguration {
+	b.RestorableAfterTimestamp = &value
 	return b
 }
 

@@ -12,6 +12,18 @@ import (
 //
 // BackupExpirationStatus records the most recent expiration Job and its schedule
 type BackupExpirationStatusApplyConfiguration struct {
+	// Stage identifies automatic retention work. Omitted for legacy duration expiration.
+	Stage *apiv1beta2.BackupExpirationStage `json:"stage,omitempty"`
+	// RequestGeneration identifies the spec used to prepare this attempt.
+	RequestGeneration *int64 `json:"requestGeneration,omitempty"`
+	// RequestHash binds discovery results to their execution inputs without storing credentials.
+	RequestHash *string `json:"requestHash,omitempty"`
+	// JobUID distinguishes observed work from a name reserved before Job creation.
+	JobUID *string `json:"jobUID,omitempty"`
+	// RecoveryPoint preserves the accepted checkpoint across runs and restarts.
+	RecoveryPoint *BackupRecoveryPointApplyConfiguration `json:"recoveryPoint,omitempty"`
+	// PreparedExpiration is persisted before discovery cleanup and expiration creation.
+	PreparedExpiration *PreparedBackupExpirationApplyConfiguration `json:"preparedExpiration,omitempty"`
 	// JobName identifies the Job executing this expiration
 	JobName *string `json:"jobName,omitempty"`
 	// Phase is Running from scheduling until the Job reaches a terminal condition
@@ -30,6 +42,54 @@ type BackupExpirationStatusApplyConfiguration struct {
 // apply.
 func BackupExpirationStatus() *BackupExpirationStatusApplyConfiguration {
 	return &BackupExpirationStatusApplyConfiguration{}
+}
+
+// WithStage sets the Stage field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Stage field is set to the value of the last call.
+func (b *BackupExpirationStatusApplyConfiguration) WithStage(value apiv1beta2.BackupExpirationStage) *BackupExpirationStatusApplyConfiguration {
+	b.Stage = &value
+	return b
+}
+
+// WithRequestGeneration sets the RequestGeneration field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RequestGeneration field is set to the value of the last call.
+func (b *BackupExpirationStatusApplyConfiguration) WithRequestGeneration(value int64) *BackupExpirationStatusApplyConfiguration {
+	b.RequestGeneration = &value
+	return b
+}
+
+// WithRequestHash sets the RequestHash field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RequestHash field is set to the value of the last call.
+func (b *BackupExpirationStatusApplyConfiguration) WithRequestHash(value string) *BackupExpirationStatusApplyConfiguration {
+	b.RequestHash = &value
+	return b
+}
+
+// WithJobUID sets the JobUID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the JobUID field is set to the value of the last call.
+func (b *BackupExpirationStatusApplyConfiguration) WithJobUID(value string) *BackupExpirationStatusApplyConfiguration {
+	b.JobUID = &value
+	return b
+}
+
+// WithRecoveryPoint sets the RecoveryPoint field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RecoveryPoint field is set to the value of the last call.
+func (b *BackupExpirationStatusApplyConfiguration) WithRecoveryPoint(value *BackupRecoveryPointApplyConfiguration) *BackupExpirationStatusApplyConfiguration {
+	b.RecoveryPoint = value
+	return b
+}
+
+// WithPreparedExpiration sets the PreparedExpiration field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PreparedExpiration field is set to the value of the last call.
+func (b *BackupExpirationStatusApplyConfiguration) WithPreparedExpiration(value *PreparedBackupExpirationApplyConfiguration) *BackupExpirationStatusApplyConfiguration {
+	b.PreparedExpiration = value
+	return b
 }
 
 // WithJobName sets the JobName field in the declarative configuration to the given value

@@ -148,6 +148,9 @@ spec:
                     maximum: 86400
                     minimum: 60
                     type: integer
+                  restorableAfterTimestamp:
+                    format: date-time
+                    type: string
                   restorableAfterVersion:
                     format: int64
                     minimum: 1
@@ -157,13 +160,16 @@ spec:
                     maximum: 315360000
                     minimum: 1
                     type: integer
-                required:
-                - expireAfterSeconds
                 type: object
                 x-kubernetes-validations:
+                - message: exactly one expiration mode is required
+                  rule: has(self.expireAfterSeconds) != has(self.restorableAfterTimestamp)
+                - message: timestamp retention cannot specify another restore requirement
+                  rule: '!has(self.restorableAfterTimestamp) || (!has(self.restorableForSeconds)
+                    && !has(self.restorableAfterVersion))'
                 - message: restorableForSeconds must not exceed expireAfterSeconds
-                  rule: '!has(self.restorableForSeconds) || self.restorableForSeconds
-                    <= self.expireAfterSeconds'
+                  rule: '!has(self.restorableForSeconds) || (has(self.expireAfterSeconds)
+                    && self.restorableForSeconds <= self.expireAfterSeconds)'
                 - message: restorableForSeconds and restorableAfterVersion are mutually
                     exclusive
                   rule: '!has(self.restorableForSeconds) || !has(self.restorableAfterVersion)'
@@ -4108,6 +4114,8 @@ spec:
                     type: integer
                   jobName:
                     type: string
+                  jobUID:
+                    type: string
                   message:
                     type: string
                   nextRunTime:
@@ -4118,6 +4126,46 @@ spec:
                     - Running
                     - Succeeded
                     - Failed
+                    type: string
+                  preparedExpiration:
+                    properties:
+                      cutoffVersion:
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      snapshotEndVersion:
+                        format: int64
+                        minimum: 1
+                        type: integer
+                    required:
+                    - cutoffVersion
+                    - snapshotEndVersion
+                    type: object
+                  recoveryPoint:
+                    properties:
+                      identity:
+                        type: string
+                      timestamp:
+                        format: date-time
+                        type: string
+                      version:
+                        format: int64
+                        minimum: 1
+                        type: integer
+                    required:
+                    - identity
+                    - timestamp
+                    - version
+                    type: object
+                  requestGeneration:
+                    format: int64
+                    type: integer
+                  requestHash:
+                    type: string
+                  stage:
+                    enum:
+                    - Discover
+                    - Expire
                     type: string
                 required:
                 - jobName

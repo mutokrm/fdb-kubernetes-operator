@@ -24,6 +24,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1beta2.BackupExpirationStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("BackupGenerationStatus"):
 		return &apiv1beta2.BackupGenerationStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("BackupRecoveryPoint"):
+		return &apiv1beta2.BackupRecoveryPointApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("BlobStoreConfiguration"):
 		return &apiv1beta2.BlobStoreConfigurationApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("BuggifyConfig"):
@@ -86,6 +88,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1beta2.MaintenanceModeInfoApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("MaintenanceModeOptions"):
 		return &apiv1beta2.MaintenanceModeOptionsApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("PreparedBackupExpiration"):
+		return &apiv1beta2.PreparedBackupExpirationApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ProcessCounts"):
 		return &apiv1beta2.ProcessCountsApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ProcessGroupCondition"):

@@ -216,7 +216,7 @@ var _ = Describe("Operator Backup", Label("e2e", "pr", "foundationdb-pr"), func(
 
 					DescribeTable(
 						"preserves the requested checkpoint during expiration",
-						func(ctx SpecContext, protectOlderCheckpoint bool) {
+						func(ctx SpecContext, protectOlderCheckpoint, automatic bool) {
 							status := backup.RunStatusCommand(ctx)
 							Expect(status.LatestRestorablePoint).NotTo(BeNil())
 							Expect(status.LatestRestorablePoint.Version).NotTo(BeNil())
@@ -246,6 +246,22 @@ var _ = Describe("Operator Backup", Label("e2e", "pr", "foundationdb-pr"), func(
 								}
 								return false
 							}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(BeTrue())
+							target := metav1.NewTime(
+								time.Unix(retainedSnapshot.End.EpochSeconds+1, 0),
+							)
+							if automatic {
+								// A later completed snapshot ensures logs have passed the timestamp.
+								Eventually(func() bool {
+									for _, candidate := range describeBackupSnapshots(ctx, backup) {
+										if candidate.Restorable &&
+											candidate.Start.EpochSeconds > target.Add(time.Minute).
+												Unix() {
+											return true
+										}
+									}
+									return false
+								}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(BeTrue())
+							}
 							backup.Stop(ctx)
 							before := backup.RunDescribeCommand(ctx)
 							Expect(before.TotalSnapshotBytes).NotTo(BeNil())
@@ -258,14 +274,27 @@ var _ = Describe("Operator Backup", Label("e2e", "pr", "foundationdb-pr"), func(
 							}
 							spec := backup.GetBackup(ctx).Spec.DeepCopy()
 							spec.Expiration = &fdbv1beta2.BackupExpiration{
-								ExpireAfterSeconds:     int64(time.Since(cutoff.Time).Seconds()),
+								ExpireAfterSeconds: ptr.To(
+									int64(time.Since(cutoff.Time).Seconds()),
+								),
 								RestorableAfterVersion: ptr.To(int64(protectedVersion)),
+							}
+							if automatic {
+								spec.Expiration = &fdbv1beta2.BackupExpiration{
+									RestorableAfterTimestamp: &target,
+								}
 							}
 							backup.UpdateBackupSpecWithSpec(spec)
 							Eventually(func(g Gomega) {
 								currentStatus := backup.GetBackup(ctx).Status.Expiration
 								g.Expect(currentStatus).NotTo(BeNil())
 								g.Expect(currentStatus.Phase).To(Equal(expectedPhase))
+								if automatic {
+									g.Expect(currentStatus.Stage).
+										To(Equal(fdbv1beta2.BackupExpirationStageExpire))
+									g.Expect(currentStatus.RecoveryPoint).NotTo(BeNil())
+									protectedVersion = uint64(currentStatus.RecoveryPoint.Version)
+								}
 							}).WithTimeout(10 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 							after := backup.RunDescribeCommand(ctx)
 							Expect(ptr.Deref(after.Restorable, false)).To(BeTrue())
@@ -287,10 +316,12 @@ var _ = Describe("Operator Backup", Label("e2e", "pr", "foundationdb-pr"), func(
 									snapshots,
 								).NotTo(ContainElement(HaveField("Start.Version", oldSnapshot.Start.Version)))
 							}
-							Expect(snapshots).To(ContainElement(And(
-								HaveField("Start.Version", retainedSnapshot.Start.Version),
-								HaveField("Restorable", true),
-							)))
+							if !automatic {
+								Expect(snapshots).To(ContainElement(And(
+									HaveField("Start.Version", retainedSnapshot.Start.Version),
+									HaveField("Restorable", true),
+								)))
+							}
 							fdbCluster.ClearRange(ctx, []byte{prefix}, 60)
 							restore = factory.CreateRestoreForCluster(
 								ctx,
@@ -301,10 +332,20 @@ var _ = Describe("Operator Backup", Label("e2e", "pr", "foundationdb-pr"), func(
 								fdbCluster.GetRange(ctx, []byte{prefix}, 25, 60),
 							).To(Equal(keyValues))
 						},
-						Entry("expires old data when the newer checkpoint is protected", false),
+						Entry(
+							"expires old data when the newer checkpoint is protected",
+							false,
+							false,
+						),
+						Entry(
+							"discovers a timestamp checkpoint and restores it after expiration",
+							false,
+							true,
+						),
 						Entry(
 							"refuses expiration when an older checkpoint is protected despite a newer snapshot",
 							true,
+							false,
 						),
 					)
 				})

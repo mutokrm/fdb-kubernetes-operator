@@ -55,6 +55,36 @@ var _ = Describe("[api] FoundationDBBackup", func() {
 		},
 		Entry("disabled", `{}`, true),
 		Entry(
+			"automatic timestamp",
+			`{"expiration":{"restorableAfterTimestamp":"2020-10-10T10:00:00+08:00"}}`,
+			true,
+		),
+		Entry(
+			"future timestamp",
+			`{"expiration":{"restorableAfterTimestamp":"2999-10-10T02:00:00Z"}}`,
+			false,
+		),
+		Entry(
+			"zero timestamp",
+			`{"expiration":{"restorableAfterTimestamp":"0001-01-01T00:00:00Z"}}`,
+			false,
+		),
+		Entry(
+			"conflicting modes",
+			`{"expiration":{"expireAfterSeconds":100,"restorableAfterTimestamp":"2020-10-10T02:00:00Z"}}`,
+			false,
+		),
+		Entry(
+			"conflicting timestamp guard",
+			`{"expiration":{"restorableAfterVersion":100,"restorableAfterTimestamp":"2020-10-10T02:00:00Z"}}`,
+			false,
+		),
+		Entry(
+			"partitioned automatic",
+			`{"backupType":"partitioned_log","expiration":{"restorableAfterTimestamp":"2020-10-10T02:00:00Z"}}`,
+			false,
+		),
+		Entry(
 			"checkpoint version",
 			`{"expiration":{"expireAfterSeconds":2592000,"restorableAfterVersion":123456789}}`,
 			true,

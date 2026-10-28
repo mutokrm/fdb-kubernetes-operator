@@ -170,14 +170,20 @@ type FoundationDBBackupSpec struct {
 }
 
 // BackupExpiration configures recurring backup retention
-// +kubebuilder:validation:XValidation:rule="!has(self.restorableForSeconds) || self.restorableForSeconds <= self.expireAfterSeconds",message="restorableForSeconds must not exceed expireAfterSeconds"
+// +kubebuilder:validation:XValidation:rule="has(self.expireAfterSeconds) != has(self.restorableAfterTimestamp)",message="exactly one expiration mode is required"
+// +kubebuilder:validation:XValidation:rule="!has(self.restorableAfterTimestamp) || (!has(self.restorableForSeconds) && !has(self.restorableAfterVersion))",message="timestamp retention cannot specify another restore requirement"
+// +kubebuilder:validation:XValidation:rule="!has(self.restorableForSeconds) || (has(self.expireAfterSeconds) && self.restorableForSeconds <= self.expireAfterSeconds)",message="restorableForSeconds must not exceed expireAfterSeconds"
 // +kubebuilder:validation:XValidation:rule="!has(self.restorableForSeconds) || !has(self.restorableAfterVersion)",message="restorableForSeconds and restorableAfterVersion are mutually exclusive"
 type BackupExpiration struct {
 	// ExpireAfterSeconds expires data older than this duration, measured when each Job is created.
 	// The source cluster must be available to convert timestamps to FDB versions
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=315360000
-	ExpireAfterSeconds int64 `json:"expireAfterSeconds"`
+	ExpireAfterSeconds *int64 `json:"expireAfterSeconds,omitempty"`
+	// RestorableAfterTimestamp automatically selects a cutoff preserving this recovery point.
+	// FDB resolves timestamps approximately; the accepted database version is persisted in status.
+	// Mutually exclusive with duration retention and other restore requirements.
+	RestorableAfterTimestamp *metav1.Time `json:"restorableAfterTimestamp,omitempty"`
 	// RestorableForSeconds requires restorability from this many seconds ago onward.
 	// Mutually exclusive with RestorableAfterVersion
 	// +kubebuilder:validation:Minimum=1
@@ -212,6 +218,18 @@ const (
 
 // BackupExpirationStatus records the most recent expiration Job and its schedule
 type BackupExpirationStatus struct {
+	// Stage identifies automatic retention work. Omitted for legacy duration expiration.
+	Stage BackupExpirationStage `json:"stage,omitempty"`
+	// RequestGeneration identifies the spec used to prepare this attempt.
+	RequestGeneration int64 `json:"requestGeneration,omitempty"`
+	// RequestHash binds discovery results to their execution inputs without storing credentials.
+	RequestHash string `json:"requestHash,omitempty"`
+	// JobUID distinguishes observed work from a name reserved before Job creation.
+	JobUID string `json:"jobUID,omitempty"`
+	// RecoveryPoint preserves the accepted checkpoint across runs and restarts.
+	RecoveryPoint *BackupRecoveryPoint `json:"recoveryPoint,omitempty"`
+	// PreparedExpiration is persisted before discovery cleanup and expiration creation.
+	PreparedExpiration *PreparedBackupExpiration `json:"preparedExpiration,omitempty"`
 	// JobName identifies the Job executing this expiration
 	JobName string `json:"jobName"`
 	// Phase is Running from scheduling until the Job reaches a terminal condition
@@ -225,6 +243,34 @@ type BackupExpirationStatus struct {
 	// FailureCount counts consecutive failed Jobs for exponential backoff
 	// +kubebuilder:validation:Minimum=0
 	FailureCount int `json:"failureCount,omitempty"`
+}
+
+// BackupExpirationStage identifies a Job's role in automatic retention.
+// +kubebuilder:validation:Enum=Discover;Expire
+type BackupExpirationStage string
+
+const (
+	// BackupExpirationStageDiscover resolves and validates a recovery checkpoint.
+	BackupExpirationStageDiscover BackupExpirationStage = "Discover"
+	// BackupExpirationStageExpire expires data using an accepted checkpoint.
+	BackupExpirationStageExpire BackupExpirationStage = "Expire"
+)
+
+// BackupRecoveryPoint is the durable checkpoint for one source, destination, and timestamp.
+type BackupRecoveryPoint struct {
+	Timestamp metav1.Time `json:"timestamp"`
+	// Identity hashes the backup UID, source cluster UID, destination and requested timestamp.
+	Identity string `json:"identity"`
+	// +kubebuilder:validation:Minimum=1
+	Version int64 `json:"version"`
+}
+
+// PreparedBackupExpiration records a validated candidate; FDB may retain overlapping files.
+type PreparedBackupExpiration struct {
+	// +kubebuilder:validation:Minimum=1
+	CutoffVersion int64 `json:"cutoffVersion"`
+	// +kubebuilder:validation:Minimum=1
+	SnapshotEndVersion int64 `json:"snapshotEndVersion"`
 }
 
 // BackupTag defines the backup tag that should be used for the backup.
@@ -652,6 +698,32 @@ func (backup *FoundationDBBackup) Validate(allowedPodModifications *AllowedPodMo
 	var validations []string
 	if backup.Spec.Expiration != nil {
 		policy := backup.Spec.Expiration
+		if (policy.ExpireAfterSeconds == nil) == (policy.RestorableAfterTimestamp == nil) {
+			validations = append(
+				validations,
+				"expiration requires exactly one of expireAfterSeconds and restorableAfterTimestamp",
+			)
+		}
+		if target := policy.RestorableAfterTimestamp; target != nil {
+			if target.IsZero() || target.After(time.Now()) {
+				validations = append(
+					validations,
+					"expiration.restorableAfterTimestamp must be a nonzero timestamp no later than now",
+				)
+			}
+			if policy.RestorableForSeconds != nil || policy.RestorableAfterVersion != nil {
+				validations = append(
+					validations,
+					"timestamp retention cannot specify another restore requirement",
+				)
+			}
+			if backup.GetBackupType() != BackupTypeDefault {
+				validations = append(
+					validations,
+					"timestamp retention requires ordinary backup_agent backups",
+				)
+			}
+		}
 		if policy.RestorableAfterVersion != nil && *policy.RestorableAfterVersion < 1 {
 			validations = append(validations, "expiration.restorableAfterVersion must be positive")
 		}
@@ -661,14 +733,15 @@ func (backup *FoundationDBBackup) Validate(allowedPodModifications *AllowedPodMo
 				"expiration.restorableForSeconds and restorableAfterVersion are mutually exclusive",
 			)
 		}
-		if policy.ExpireAfterSeconds < 1 || policy.ExpireAfterSeconds > 315360000 {
+		if policy.ExpireAfterSeconds != nil &&
+			(*policy.ExpireAfterSeconds < 1 || *policy.ExpireAfterSeconds > 315360000) {
 			validations = append(
 				validations,
 				"expiration.expireAfterSeconds must be between 1 and 315360000",
 			)
 		}
 		if policy.RestorableForSeconds != nil &&
-			(*policy.RestorableForSeconds < 1 || *policy.RestorableForSeconds > policy.ExpireAfterSeconds) {
+			(*policy.RestorableForSeconds < 1 || policy.ExpireAfterSeconds == nil || *policy.RestorableForSeconds > *policy.ExpireAfterSeconds) {
 			validations = append(
 				validations,
 				"expiration.restorableForSeconds must be positive and not exceed expireAfterSeconds",

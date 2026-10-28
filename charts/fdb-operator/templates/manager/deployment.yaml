@@ -71,6 +71,10 @@ spec:
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command:
         - /manager
+        {{- with .Values.backupDiscoveryHelperImage }}
+        args:
+        - {{ printf "--backup-discovery-helper-image=%s" . | quote }}
+        {{- end }}
         env:
         {{- if not .Values.globalMode.enabled }}
         - name: WATCH_NAMESPACE

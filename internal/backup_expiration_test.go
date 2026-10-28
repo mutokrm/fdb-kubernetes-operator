@@ -59,7 +59,7 @@ var _ = Describe("backup expiration Job", func() {
 			backup.Spec.ClusterName = "source-cluster"
 			backup.Spec.EncryptionKeyPath = "/keys/backup.key"
 			backup.Spec.Expiration = &fdbv1beta2.BackupExpiration{
-				ExpireAfterSeconds:     172800,
+				ExpireAfterSeconds:     ptr.To(int64(172800)),
 				RestorableForSeconds:   testCase.restorableForSeconds,
 				RestorableAfterVersion: testCase.restorableAfterVersion,
 			}

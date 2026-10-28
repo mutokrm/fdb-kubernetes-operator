@@ -344,7 +344,58 @@ The operator passes this version unchanged as `--restorable-after-version`. A ch
 
 The checkpoint owner must supply and advance the oldest required version. The operator does not discover external checkpoints. Each Job fixes the requirement at creation; later policy changes apply to subsequent Jobs and cannot protect data already being expired by an active Job.
 
-Expiration runs in a Kubernetes Job against running, paused, or stopped backups, including backups with `agentCount: 0`. It is not supported for `backupType: unmanaged`. The operator builds each Job using the current policy and source cluster from the spec, and the destination from `status.backupDetails`. Existing Jobs retain their arguments across operator restarts and configuration changes. If a Job is missing, its replacement uses the current inputs and recalculates the cutoffs. The operator does not retain an inventory of old backup containers.
+### Retaining a specific recovery timestamp
+
+To let the operator select the deletion cutoff while preserving a recovery point, use:
+
+```yaml
+spec:
+  expiration:
+    restorableAfterTimestamp: "2020-10-10T10:00:00+08:00"
+    intervalSeconds: 3600
+```
+
+This mode is mutually exclusive with `expireAfterSeconds`, `restorableForSeconds`,
+and `restorableAfterVersion`. The timestamp must be nonzero and no later than now.
+It is interpreted as an instant, normalized to UTC, with whole-second precision.
+FDB's timekeeper conversion is approximate; the accepted numeric version appears in
+`status.expiration.recoveryPoint`. Use that version for an exact, repeatable restore.
+
+Configure the operator's `--backup-discovery-helper-image` with the matching operator
+release image containing `/backup-discovery`. In Helm, explicitly set
+`backupDiscoveryHelperImage` and use an operator image supporting timestamp retention.
+The chart leaves this setting disabled for compatibility with older images. The image and its
+pull credentials must be accessible in each backup namespace. Without the setting,
+automatic retention fails with a status message and retries on the persisted schedule.
+
+A discovery Job uses `fdbrestore start --dryrun`, `fdbbackup describe --json --deep`,
+and a second dry-run at the resolved version. It selects the latest snapshot start
+whose completed snapshot and continuous mutation logs cover the recovery point.
+The controller persists that checkpoint and candidate cutoff before deleting the
+discovery Job. Only after cleanup finishes does it create `fdbbackup expire` with
+`--expire-before-version` and `--restorable-after-version`. FDB's own safety checks
+remain enabled. Overlapping log files can cause FDB to retain more data than the
+candidate suggests; this does not promise the smallest possible backup container.
+
+The accepted recovery version is reused on later runs, including after restarts.
+Changing the timestamp, destination, or source cluster identity requires a new
+checkpoint. Other execution changes require fresh discovery while retaining the
+same checkpoint. A missing observed Job fails the attempt and backs off. Successful
+discovery does not reset failure backoff; only successful expiration does.
+Sanitized helper failures are saved in `status.expiration.message` before Job cleanup.
+
+Automatic retention supports ordinary `backup_agent` backups, including encrypted
+backups with `spec.encryptionKeyPath` and the corresponding mounted key. Discovery
+passes the key to restore dry-runs; expiration does not need the key. Partitioned
+logs and unmanaged backups are unsupported in this mode. Missing keys, unsupported
+metadata, log gaps, ambiguous results, or command limits fail without creating an
+expiration Job. Each discovery command has a two-minute deadline and an 8 MiB output
+limit. FDB 7.4.6 encrypted command behavior has been exercised; validate other FDB
+versions and custom images in staging before relying on automatic retention.
+
+### Job behavior
+
+Expiration runs in a Kubernetes Job against running, paused, or stopped backups, including backups with `agentCount: 0`. It is not supported for `backupType: unmanaged`. The operator builds each Job using the current policy and source cluster from the spec, and the destination from `status.backupDetails`. Existing Jobs retain their arguments across operator restarts and configuration changes. In duration mode, if a Job is missing, its replacement uses the current inputs and recalculates the cutoffs. The operator does not retain an inventory of old backup containers.
 
 The Job uses the backup's image, pod settings, storage credentials, TLS configuration, and cluster-file initialization. Expiration does not decrypt backup contents and receives neither `--encryption-key-file` nor `--legacy-encryption-format`. Only the main `foundationdb` container runs, along with configured init containers; additional regular containers and main-container health probes are omitted. Custom parameters beginning with `knob_` are inherited. The source cluster must remain available for timestamp conversion, and blobstore credentials must permit deletion. A backup container shared by several resources or operators must have a single owner for expiration.
 

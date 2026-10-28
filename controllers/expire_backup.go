@@ -46,6 +46,11 @@ func (s expireBackup) reconcile(
 	if err != nil {
 		return &requeue{curError: err}
 	}
+	status := backup.Status.Expiration
+	if (status != nil && status.Stage != "") ||
+		(backup.Spec.Expiration != nil && backup.Spec.Expiration.RestorableAfterTimestamp != nil && job == nil) {
+		return r.reconcileAutomaticBackupExpiration(ctx, backup, job)
+	}
 	if job != nil {
 		return r.reconcileBackupExpirationJob(ctx, backup, job)
 	}
@@ -166,6 +171,16 @@ func (r *FoundationDBBackupReconciler) updateBackupExpirationStatus(
 	job *batchv1.Job,
 ) error {
 	phase, message := backupExpirationJobResult(job)
+	return r.setBackupExpirationStatus(ctx, backup, phase, message)
+}
+
+// setBackupExpirationStatus applies the shared terminal schedule for either Job stage.
+func (r *FoundationDBBackupReconciler) setBackupExpirationStatus(
+	ctx context.Context,
+	backup *fdbv1beta2.FoundationDBBackup,
+	phase fdbv1beta2.BackupExpirationPhase,
+	message string,
+) error {
 	if backup.Status.Expiration.Phase == phase {
 		return nil
 	}
@@ -200,7 +215,7 @@ func (r *FoundationDBBackupReconciler) updateBackupExpirationStatus(
 			backup,
 			eventType,
 			"BackupExpiration"+string(phase),
-			"Expiration Job "+job.Name+": "+string(phase),
+			"Expiration Job "+backup.Status.Expiration.JobName+": "+string(phase),
 		)
 	}
 	return nil

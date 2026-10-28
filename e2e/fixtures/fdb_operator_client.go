@@ -270,6 +270,7 @@ spec:
         - /manager
         args:` + operatorArgs +
 		`
+        - "--backup-discovery-helper-image={{ .OperatorImage }}"
         image: {{ .OperatorImage }}
         name: manager
         imagePullPolicy: Always
@@ -408,6 +409,7 @@ spec:
         - /manager
         args:` + operatorArgs +
 		`
+        - "--backup-discovery-helper-image={{ .OperatorImage }}"
         image: {{ .OperatorImage }}
         name: manager
         imagePullPolicy: Always

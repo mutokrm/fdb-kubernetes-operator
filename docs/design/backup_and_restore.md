@@ -168,6 +168,12 @@ If any of these checks fail, the restore will be marked as unreconciled.
 
 ### Expiring and Deleting Backups
 
+The current implementation uses per-backup Jobs and a persisted retry schedule rather
+than the queue proposed below. Timestamp retention adds a discovery Job, persists its
+accepted recovery version and cutoff, then waits for foreground cleanup before
+creating the guarded expiration Job. See the
+[backup manual](../manual/backup.md#retaining-a-specific-recovery-timestamp).
+
 In order to prevent backups from growing without bound, we have configuration options to expire backup data older than a certain age. This will be done through the `fdbbackup expire` command. Because this command blocks, and requires non-trivial resources to run, this will be run in a separate pod from the main controller. The operator will maintain an in-memory queue of backup expiration jobs, with one job for each backup. On start-up, it will populate the queue, and on reconciliation it will ensure that the backup has an entry in the expiration queue.  The operator will have a limit for the concurrency of backup expiration pods, with a default of 1. The operator will have a dedicated goroutine for monitoring this queue and creating pods. If the number of active backup expiration pods is less than the concurrency limit, the queueing goroutine will pop the first job off the queue, create a pod for running that backup expiration, and put a new entry on the end of the queue. If the number of active backup expiration pods is greater than or equal to the concurrency limit, this goroutine will sleep for 10 minutes and try again. It will also check to make sure that there is only one backup expiration running for a given backup at once. Pods that have started termination will not count against this concurrency limit.
 
 We will have a special case of backup expiration for deleting an entire backup. The operator will add finalizers to the backup resource to indicate that when the backup resource is deleted, we must run an `fdbbackup delete` command. There will be an option for turning off this finalizer in the backup spec. When the backup expiration job identifies that a backup needs to be deleted, it will run an `fdbbackup delete` command rather than an `fdbbackup expire` command, and when that completes it will clear the deletion finalizer. At this point the backup resource will get cleaned up. These deletion jobs will be managed through the same queue as the expiration jobs.

@@ -131,6 +131,7 @@ type Options struct {
 	MinimumUptimeForConfigurationChanges                  time.Duration
 	MinimumAgeForTerminalPodDeletion                      time.Duration
 	BackupExpirationPollInterval                          time.Duration
+	BackupDiscoveryHelperImage                            string
 	// AllowedAdditionalVolumeSources defines the allowed corev1.VolumeSources a user can define in the user provided
 	// corev1.PodSpec.
 	AllowedAdditionalVolumeSources []string
@@ -384,6 +385,7 @@ func (o *Options) BindFlags(fs *pflag.FlagSet) {
 		1*time.Minute,
 		"the minimum uptime for the cluster before configuration changes are allowed.",
 	)
+	fs.StringVar(&o.BackupDiscoveryHelperImage, "backup-discovery-helper-image", "", "Operator release image supplying the timestamp retention discovery helper.")
 	fs.DurationVar(
 		&o.BackupExpirationPollInterval,
 		"backup-expiration-poll-interval",
@@ -623,6 +625,7 @@ func StartManager(
 		backupReconciler.AllowedPodModifications = allowedPodModifications
 		backupReconciler.MinimumAgeForTerminalPodDeletion = operatorOpts.MinimumAgeForTerminalPodDeletion
 		backupReconciler.BackupExpirationPollInterval = operatorOpts.BackupExpirationPollInterval
+		backupReconciler.BackupDiscoveryHelperImage = operatorOpts.BackupDiscoveryHelperImage
 
 		if err := backupReconciler.SetupWithManager(
 			mgr,

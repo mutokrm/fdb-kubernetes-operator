@@ -71,3 +71,8 @@ initContainerSecurityContext:
       - all
   readOnlyRootFilesystem: true
 nodeReadClusterRole: true
+
+# Matching operator release image used to install the timestamp-retention helper.
+# Leave empty to disable timestamp retention. Requires a supporting operator image.
+# The helper image must be available in the backup namespace.
+backupDiscoveryHelperImage: ""

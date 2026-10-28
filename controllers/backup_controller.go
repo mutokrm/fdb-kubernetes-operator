@@ -58,6 +58,8 @@ type FoundationDBBackupReconciler struct {
 	MinimumAgeForTerminalPodDeletion time.Duration
 	// BackupExpirationPollInterval controls how often active expiration Jobs are observed
 	BackupExpirationPollInterval time.Duration
+	// BackupDiscoveryHelperImage supplies the static discovery helper.
+	BackupDiscoveryHelperImage string
 }
 
 // +kubebuilder:rbac:groups=apps.foundationdb.org,resources=foundationdbbackups,verbs=get;list;watch;create;update;patch;delete

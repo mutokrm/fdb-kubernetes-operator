@@ -8,6 +8,7 @@ This Document documents the types introduced by the FoundationDB Operator to be 
 * [BackupExpiration](#backupexpiration)
 * [BackupExpirationStatus](#backupexpirationstatus)
 * [BackupGenerationStatus](#backupgenerationstatus)
+* [BackupRecoveryPoint](#backuprecoverypoint)
 * [BlobStoreConfiguration](#blobstoreconfiguration)
 * [FoundationDBBackup](#foundationdbbackup)
 * [FoundationDBBackupDescribe](#foundationdbbackupdescribe)
@@ -19,6 +20,7 @@ This Document documents the types introduced by the FoundationDB Operator to be 
 * [FoundationDBLiveBackupStatus](#foundationdblivebackupstatus)
 * [FoundationDBLiveBackupStatusState](#foundationdblivebackupstatusstate)
 * [LatestRestorablePoint](#latestrestorablepoint)
+* [PreparedBackupExpiration](#preparedbackupexpiration)
 * [ImageConfig](#imageconfig)
 
 ## BackupDeletionPolicy
@@ -33,7 +35,8 @@ BackupExpiration configures recurring backup retention
 
 | Field | Description | Scheme | Required |
 | ----- | ----------- | ------ | -------- |
-| expireAfterSeconds | ExpireAfterSeconds expires data older than this duration, measured when each Job is created. The source cluster must be available to convert timestamps to FDB versions | int64 | true |
+| expireAfterSeconds | ExpireAfterSeconds expires data older than this duration, measured when each Job is created. The source cluster must be available to convert timestamps to FDB versions | *int64 | false |
+| restorableAfterTimestamp | RestorableAfterTimestamp automatically selects a cutoff preserving this recovery point. FDB resolves timestamps approximately; the accepted database version is persisted in status. Mutually exclusive with duration retention and other restore requirements. | *metav1.Time | false |
 | restorableForSeconds | RestorableForSeconds requires restorability from this many seconds ago onward. Mutually exclusive with RestorableAfterVersion | *int64 | false |
 | restorableAfterVersion | RestorableAfterVersion is the oldest database version that must remain restorable after expiration. Mutually exclusive with RestorableForSeconds | *int64 | false |
 | intervalSeconds | IntervalSeconds is the delay between successful expiration Jobs, defaulting to one hour. Failed Jobs use exponential backoff up to one day | *int64 | false |
@@ -46,12 +49,24 @@ BackupExpirationPhase describes the execution state of an expiration Job
 
 [Back to TOC](#table-of-contents)
 
+## BackupExpirationStage
+
+BackupExpirationStage identifies a Job's role in automatic retention.
+
+[Back to TOC](#table-of-contents)
+
 ## BackupExpirationStatus
 
 BackupExpirationStatus records the most recent expiration Job and its schedule
 
 | Field | Description | Scheme | Required |
 | ----- | ----------- | ------ | -------- |
+| stage | Stage identifies automatic retention work. Omitted for legacy duration expiration. | [BackupExpirationStage](#backupexpirationstage) | false |
+| requestGeneration | RequestGeneration identifies the spec used to prepare this attempt. | int64 | false |
+| requestHash | RequestHash binds discovery results to their execution inputs without storing credentials. | string | false |
+| jobUID | JobUID distinguishes observed work from a name reserved before Job creation. | string | false |
+| recoveryPoint | RecoveryPoint preserves the accepted checkpoint across runs and restarts. | *[BackupRecoveryPoint](#backuprecoverypoint) | false |
+| preparedExpiration | PreparedExpiration is persisted before discovery cleanup and expiration creation. | *[PreparedBackupExpiration](#preparedbackupexpiration) | false |
 | jobName | JobName identifies the Job executing this expiration | string | true |
 | phase | Phase is Running from scheduling until the Job reaches a terminal condition | [BackupExpirationPhase](#backupexpirationphase) | true |
 | message | Message provides the Job's failure reason, if any | string | false |
@@ -79,6 +94,18 @@ BackupGenerationStatus stores information on which generations have reached diff
 ## BackupMode
 
 BackupMode defines the mode of backup operation.
+
+[Back to TOC](#table-of-contents)
+
+## BackupRecoveryPoint
+
+BackupRecoveryPoint is the durable checkpoint for one source, destination, and timestamp.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| timestamp |  | metav1.Time | true |
+| identity | Identity hashes the backup UID, source cluster UID, destination and requested timestamp. | string | true |
+| version |  | int64 | true |
 
 [Back to TOC](#table-of-contents)
 
@@ -258,6 +285,17 @@ LatestRestorablePoint contains information about the latest restorable point if 
 | Field | Description | Scheme | Required |
 | ----- | ----------- | ------ | -------- |
 | Version | Version is the version that can be restored to. | *uint64 | false |
+
+[Back to TOC](#table-of-contents)
+
+## PreparedBackupExpiration
+
+PreparedBackupExpiration records a validated candidate; FDB may retain overlapping files.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| cutoffVersion |  | int64 | true |
+| snapshotEndVersion |  | int64 | true |
 
 [Back to TOC](#table-of-contents)
 

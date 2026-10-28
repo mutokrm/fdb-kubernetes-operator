@@ -46,20 +46,19 @@ func GetBackupExpirationJob(
 		return nil, errors.New("backup has no expiration status")
 	}
 
-	// Build the same runtime configuration even when the backup has no agent deployment
-	configuration := backup.DeepCopy()
-	configuration.Spec.AgentCount = ptr.To(1)
-	deployment, err := GetBackupDeployment(configuration)
+	if backup.Spec.Expiration == nil || backup.Status.BackupDetails == nil ||
+		backup.Status.BackupDetails.URL == "" {
+		return nil, errors.New("expiration policy and destination are required")
+	}
+
+	job, err := getBackupMaintenanceJob(backup)
 	if err != nil {
 		return nil, err
 	}
-	template := deployment.Spec.Template
-	delete(template.Labels, fdbv1beta2.BackupDeploymentPodLabel)
-	template.Spec.RestartPolicy = corev1.RestartPolicyNever
-	template.Spec.EphemeralContainers = nil
+	template := &job.Spec.Template
 	policy := backup.Spec.Expiration
 	now = now.UTC()
-	cutoff := now.Add(-time.Duration(policy.ExpireAfterSeconds) * time.Second)
+	cutoff := now.Add(-time.Duration(ptr.Deref(policy.ExpireAfterSeconds, 0)) * time.Second)
 
 	for _, container := range template.Spec.Containers {
 		if container.Name != fdbv1beta2.MainContainerName {
@@ -82,11 +81,60 @@ func GetBackupExpirationJob(
 			container.Args = append(container.Args, "--restorable-after-version",
 				strconv.FormatInt(*policy.RestorableAfterVersion, 10))
 		}
+		if policy.RestorableAfterTimestamp != nil {
+			prepared, point := currentStatus.PreparedExpiration, currentStatus.RecoveryPoint
+			if currentStatus.Stage != fdbv1beta2.BackupExpirationStageExpire || prepared == nil ||
+				point == nil ||
+				prepared.CutoffVersion <= 0 ||
+				prepared.SnapshotEndVersion < prepared.CutoffVersion ||
+				point.Version < prepared.SnapshotEndVersion {
+				return nil, errors.New(
+					"automatic expiration requires an accepted checkpoint and cutoff",
+				)
+			}
+			container.Args = []string{"expire", "-d", backup.Status.BackupDetails.URL,
+				"--expire-before-version", strconv.FormatInt(prepared.CutoffVersion, 10),
+				"--restorable-after-version", strconv.FormatInt(point.Version, 10)}
+		}
 		// Only knobs can be inherited: other CLI options could override the destination or disable safety checks
 		for _, parameter := range backup.Spec.CustomParameters.GetKnobsForBackupRestoreCLI() {
 			if strings.HasPrefix(parameter, "--knob_") {
 				container.Args = append(container.Args, parameter)
 			}
+		}
+		container.LivenessProbe = nil
+		container.ReadinessProbe = nil
+		container.StartupProbe = nil
+		container.Lifecycle = nil
+		template.Spec.Containers = []corev1.Container{container}
+		break
+	}
+
+	return job, nil
+}
+
+// getBackupMaintenanceJob shares the backup image, credentials and cluster-file setup.
+func getBackupMaintenanceJob(backup *fdbv1beta2.FoundationDBBackup) (*batchv1.Job, error) {
+	currentStatus := backup.Status.Expiration
+	if currentStatus == nil || backup.Status.BackupDetails == nil ||
+		backup.Status.BackupDetails.URL == "" {
+		return nil, errors.New("maintenance Job requires status and destination")
+	}
+	// Build the same runtime configuration even when the backup has no agent deployment
+	configuration := backup.DeepCopy()
+	configuration.Spec.AgentCount = ptr.To(1)
+	deployment, err := GetBackupDeployment(configuration)
+	if err != nil {
+		return nil, err
+	}
+	template := deployment.Spec.Template
+	delete(template.Labels, fdbv1beta2.BackupDeploymentPodLabel)
+	template.Spec.RestartPolicy = corev1.RestartPolicyNever
+	template.Spec.EphemeralContainers = nil
+
+	for _, container := range template.Spec.Containers {
+		if container.Name != fdbv1beta2.MainContainerName {
+			continue
 		}
 		container.LivenessProbe = nil
 		container.ReadinessProbe = nil
