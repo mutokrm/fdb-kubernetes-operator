@@ -100,6 +100,7 @@ RUN set -eux && \
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
 COPY --chown=fdb:fdb --from=builder /workspace/bin/manager .
+COPY --chown=fdb:fdb --from=builder /workspace/bin/backup-discovery /backup-discovery
 COPY --chown=fdb:fdb --from=builder /workspace/bin/kubectl-fdb /usr/local/bin/kubectl-fdb
 COPY --chown=fdb:fdb --from=builder /var/log/fdb/.keep /var/log/fdb/.keep
 

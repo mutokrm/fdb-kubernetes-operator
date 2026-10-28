@@ -109,7 +109,10 @@ ifneq "$(SKIP_TEST)" "1"
 endif
 
 # Build manager binary
-manager: bin/manager
+manager: bin/manager bin/backup-discovery
+
+bin/backup-discovery: ${GO_SRC}
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/backup-discovery ./cmd/backup-discovery
 
 bin/manager: ${GO_SRC}
 	go build -ldflags="-s -w -X github.com/FoundationDB/fdb-kubernetes-operator/v2/setup.operatorVersion=${TAG}" -o bin/manager main.go
